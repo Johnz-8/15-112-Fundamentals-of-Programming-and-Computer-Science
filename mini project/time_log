@@ -1,0 +1,44 @@
+###############################################
+Total Time:  365 minutes
+###############################################
+
+###############################################
+Date: 4-Oct
+Start Time: 7:40pm
+End Time: 8:00pm
+Duration: 20 minutes
+Description: Ideate about project.
+###############################################
+
+###############################################
+Date: 5-Oct
+Start Time: 9:30pm
+End Time: 10:50pm
+Duration: 80 minutes
+Description: Building the backbone of the game(grid & data structure) and testing.
+###############################################
+
+###############################################
+Date: 7-Oct
+Start Time: 8:40pm
+End Time: 10:50pm
+Duration:  130 minutes
+Description: Add more environmental features: season & fertility (import randomness). Testing and debugging. Logging.
+###############################################
+
+###############################################
+Date: 8-Oct
+Start Time: 11:15am
+End Time: 12:20pm
+Duration:  65 minutes
+Description: Debugging, logic checking, and testing.
+###############################################
+
+###############################################
+Date: 8-Oct
+Start Time: 3:50pm
+End Time: 5:00pm
+Duration:  70 minutes
+Description: proofreading docstrings, reviewing code.
+###############################################
+
