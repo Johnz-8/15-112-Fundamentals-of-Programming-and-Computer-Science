@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="en">
+
+<!-- SETUP : IGNORE -->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JavaScript Canvas App</title>
+
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: grid;
+      place-content: center;
+      justify-items: center;
+      gap: 12px;
+      padding: 16px;
+      box-sizing: border-box;
+      background: #eef2f7;
+      font-family: system-ui, sans-serif;
+    }
+
+    canvas {
+      width: min(800px, 92vw, calc(100dvh - 13rem));
+      height: auto;
+      aspect-ratio: 1;
+      border: 2px solid #263238;
+      background: white;
+      touch-action: none;
+    }
+
+    canvas:focus-visible {
+      outline: 4px solid #4f8cff;
+      outline-offset: 3px;
+    }
+
+    h1 {
+      max-width: 92vw;
+      margin: 0;
+      font-size: clamp(1.25rem, 4vw, 2rem);
+      line-height: 1.15;
+      text-align: center;
+    }
+
+    h1 span {
+      display: block;
+      margin-top: 4px;
+      color: #546e7a;
+      font-size: 0.55em;
+      font-weight: 500;
+    }
+
+    p {
+      margin: 0;
+      max-width: 92vw;
+      text-align: center;
+    }
+
+    button {
+      font-size: 1rem;
+      padding: 8px 16px;
+      cursor: pointer;
+    }
+
+    #gyroStatus {
+      max-width: min(800px, 92vw);
+      padding: 8px 12px;
+      border: 2px solid #b26a00;
+      border-radius: 6px;
+      background: #fff4e0;
+      color: #6d4000;
+    }
+
+    #gyroStatus[hidden] {
+      display: none;
+    }
+  </style>
+</head>
+
+<!-- END SETUP : IGNORE -->
+
+
+<body>
+
+  <h1>
+    Part 1: Gyro Target Collector
+  </h1>
+
+  <button id="gyroButton">
+    Enable Gyro
+  </button>
+
+  <p
+    id="gyroStatus"
+    role="status"
+    hidden
+  ></p>
+
+  <p id="gameStatus">
+  Score: <span id="score">0</span>
+  &nbsp; | &nbsp;
+  Targets: <span id="targetCount">3</span>
+  &nbsp; | &nbsp;
+  Next target in: <span id="spawnCountdown">5</span>
+  </p>
+
+  <canvas
+    id="canvas"
+    width="400"
+    height="400"
+    tabindex="0"
+    aria-label="Interactive game. Tilt your phone to collect yellow targets."
+  >
+    This application requires a browser that supports HTML canvas.
+  </canvas>
+
+  <p>
+    <b>Instructions:</b>
+    Tilt your phone to collect the yellow targets.
+    A new target appears every 3 seconds!
+  </p>
+
+
+  <script type="module">
+
+    // ============================================================
+    // CANVAS APP
+    // Everything inside this script tag is JavaScript.
+    // ============================================================
+
+    const WIDTH = 400;
+    const HEIGHT = 400;
+
+    const canvas =
+      document.querySelector("#canvas");
+
+    const context =
+      canvas.getContext("2d");
+
+    const gyroButton =
+      document.querySelector("#gyroButton");
+
+    const gyroStatus =
+      document.querySelector("#gyroStatus");
+
+    const scoreText = document.querySelector("#score");
+    const targetCountText = document.querySelector("#targetCount");
+    const spawnCountdownText = document.querySelector("#spawnCountdown");
+
+
+    // ============================================================
+    // MODEL
+    // All persistent application state belongs here.
+    // ============================================================
+
+    const model = {};
+
+    // ------------------------------------------------------------
+    // TARGETS
+    // ------------------------------------------------------------
+
+    model.targets = [
+      {x: 70, y: 70, radius: 12},
+      {x: 330, y: 80, radius: 12},
+      {x: 100, y: 300, radius: 12}
+    ];
+
+    model.score = 0;
+    model.spawnInterval = 3;
+    model.spawnTimer = model.spawnInterval;
+
+    // ------------------------------------------------------------
+    // PLAYER
+    // ------------------------------------------------------------
+
+    model.paused = false;
+    model.playerX = WIDTH / 2;
+    model.playerY = HEIGHT / 2;
+    model.playerRadius = 20;
+
+    // ball starts at rest
+    model.playerVX = 0;
+    model.playerVY = 0;
+
+    // current phone tilt
+    model.gyroX = 0;
+    model.gyroY = 0;
+
+    // how far the phone has spun around its vertical axis (not used for this lab)
+    model.gyroZ = 0;
+
+
+    // ============================================================
+    // TARGET CREATION
+    // ============================================================
+
+    function spawnTarget() {
+      const radius = 12;
+      let x;
+      let y;
+      let farEnoughAway = false;
+
+      // keep choosing a random location until the new target is not directly underneath the player.
+      while (!farEnoughAway) {
+        x = radius + Math.random() * (WIDTH - 2 * radius);
+        y = radius + Math.random() * (HEIGHT - 2 * radius);
+
+        const dx = model.playerX - x;
+        const dy = model.playerY - y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        farEnoughAway = distance > model.playerRadius + radius + 30;
+      }
+
+      model.targets.push({x: x, y: y, radius: radius});
+    }
+
+
+    // ============================================================
+    // CONTROLLERS
+    // Controllers respond to time or user input and modify the model.
+    // ============================================================
+
+    // This is analogous to onStep(app).
+    // dt is the time since the last update, in seconds.
+    function update(dt) {
+      const acceleration = 18;
+
+      // phone tilt acts like gravity
+      model.playerVX += model.gyroX * acceleration * dt;
+      model.playerVY += model.gyroY * acceleration * dt;
+
+      // move player
+      model.playerX += model.playerVX * dt;
+      model.playerY += model.playerVY * dt;
+
+      // friction gradually slows the ball down
+      model.playerVX *= 0.99;
+      model.playerVY *= 0.99;
+
+      // ----------------------------------------------------------
+      // LEFT / RIGHT WALL
+      // ----------------------------------------------------------
+
+      if (model.playerX - model.playerRadius < 0 || model.playerX + model.playerRadius > WIDTH) {
+        model.playerVX *= -0.7;
+        model.playerX = Math.max(model.playerRadius, Math.min(WIDTH - model.playerRadius, model.playerX)); 
+      }
+
+      // ----------------------------------------------------------
+      // TOP / BOTTOM WALL
+      // ----------------------------------------------------------
+
+      if (model.playerY - model.playerRadius < 0 || model.playerY + model.playerRadius > HEIGHT) {
+        model.playerVY *= -0.7;
+        model.playerY = Math.max(model.playerRadius, Math.min(HEIGHT - model.playerRadius, model.playerY));    
+      }
+      
+      checkForTargets();
+      model.spawnTimer -= dt;
+      if (model.spawnTimer <= 0) {
+        spawnTarget();
+        model.spawnTimer += model.spawnInterval;
+      }
+    
+      // update status text
+      scoreText.textContent = model.score;
+      targetCountText.textContent = model.targets.length;
+      spawnCountdownText.textContent = Math.ceil(model.spawnTimer);
+    }
+
+
+    // ============================================================
+    // TARGET COLLISIONS
+    // ============================================================
+
+    function checkForTargets() {
+      const remainingTargets = [];
+      for (const target of model.targets) {
+        const dx = model.playerX - target.x;
+        const dy = model.playerY - target.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        const touching = distance < model.playerRadius + target.radius;
+
+        if (touching) {
+          model.score += 1;
+        }
+        else {
+          remainingTargets.push(target);
+        }
+      }
+
+      model.targets = remainingTargets;
+    }
+
+
+
+    // ============================================================
+    // GYROSCOPE
+    // ============================================================
+
+    // Analogous to onKeyPress(app, key), but for phone tilt.
+    // Called every time the phone reports a new tilt:
+    // gamma = left/right tilt
+    // beta  = front/back tilt
+    // alpha = spin around vertical axis
+    
+    function onTilt(alpha, beta, gamma) {
+      model.gyroX = gamma;
+      model.gyroY = beta;
+      model.gyroZ = alpha;
+    }
+
+
+    // ============================================================
+    // KEYBOARD
+    // ============================================================
+
+    // Arrow keys still work as a fallback on laptops.
+    function onKeyDown(event) {
+
+      const speedChange = 30;
+      if (event.key === "ArrowLeft") {
+        model.playerVX -= speedChange;
+      }
+      else if (event.key === "ArrowRight"
+      ) {
+        model.playerVX += speedChange;
+      }
+      else if (event.key === "ArrowUp"
+      ) {
+        model.playerVY -= speedChange;
+      }
+      else if (event.key === "ArrowDown"
+      ) {
+        model.playerVY += speedChange;
+      }
+      else {
+        return;
+      }
+      event.preventDefault();
+    }
+
+    canvas.addEventListener("keydown",onKeyDown);
+
+
+    // ============================================================
+    // VIEW
+    // The view reads the model and draws it.
+    // ============================================================
+
+    function render(context) {
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, WIDTH, HEIGHT);
+
+      for (const target of model.targets
+      ) {
+        // Outer target circle.
+        context.beginPath();
+        context.arc(target.x, target.y, target.radius, 0, Math.PI * 2);
+        context.fillStyle = "#f9a825";
+        context.fill();
+
+        context.lineWidth = 2;
+        context.strokeStyle = "#8d6e00";
+        context.stroke();
+
+        // Inner ring so the target looks more like a coin
+        context.beginPath();
+        context.arc(target.x, target.y, target.radius * 0.55, 0, Math.PI * 2);
+        context.strokeStyle = "#fff59d";
+        context.stroke();
+      }
+
+
+      // ----------------------------------------------------------
+      // PLAYER
+      // ----------------------------------------------------------
+      context.beginPath();
+      context.arc(model.playerX, model.playerY, model.playerRadius, 0, Math.PI * 2);
+      context.fillStyle = "#1565c0";
+      context.fill();
+
+      context.lineWidth = 3;
+      context.strokeStyle = "#0d345c";
+      context.stroke();
+    }
+
+
+    // ##############################################################
+    // ##############################################################
+    // ##                                                          ##
+    // ##  YOU DON'T NEED TO CHANGE OR UNDERSTAND ANYTHING BELOW.  ##
+    // ##                                                          ##
+    // ##   Everything past this line is plumbing for the gyro     ##
+    // ##   and canvas and animation loop.                         ##
+    // ##                                                          ##
+    // ##   The logic lives ABOVE this line, in the model,         ##
+    // ##   the controllers, and the view.                         ##
+    // ##                                                          ##
+    // ##############################################################
+    // ##############################################################
+
+    // ============================================================
+    // TURNING THE GYROSCOPE ON
+    // ============================================================
+
+    const GYRO_WAIT = 2000;
+
+    let gyroReadingSeen = false;
+
+
+    function showGyroMessage(
+      message
+    ) {
+
+      gyroStatus.textContent =
+        message;
+
+      gyroStatus.hidden =
+        false;
+    }
+
+
+
+    function hideGyroMessage() {
+
+      gyroStatus.hidden =
+        true;
+    }
+
+
+
+    // Receives the raw browser event
+    // and passes the tilt on to onTilt.
+    function handleOrientation(
+      event
+    ) {
+
+      // A device with no sensor may
+      // still send empty readings.
+      if (
+        event.beta === null &&
+        event.gamma === null
+      ) {
+
+        return;
+      }
+
+
+      if (!gyroReadingSeen) {
+
+        gyroReadingSeen =
+          true;
+
+        hideGyroMessage();
+
+        gyroButton.textContent =
+          "Gyro Enabled";
+      }
+
+
+      onTilt(
+        event.alpha || 0,
+        event.beta || 0,
+        event.gamma || 0
+      );
+    }
+
+
+
+    function checkForGyroReadings() {
+
+      if (gyroReadingSeen) {
+
+        return;
+      }
+
+
+      gyroButton.textContent =
+        "No Gyro Found";
+
+
+      showGyroMessage(
+        "No gyroscope readings detected - this device probably " +
+        "does not have one. Use the arrow keys to steer instead."
+      );
+    }
+
+
+
+    async function enableGyro() {
+
+      try {
+
+        // iPhones require the user
+        // to explicitly grant permission.
+        if (
+          typeof DeviceOrientationEvent !==
+          "undefined" &&
+
+          typeof DeviceOrientationEvent
+            .requestPermission ===
+          "function"
+        ) {
+
+          const permission =
+            await DeviceOrientationEvent
+              .requestPermission();
+
+
+          if (
+            permission !==
+            "granted"
+          ) {
+
+            gyroButton.textContent =
+              "Permission Denied";
+
+
+            showGyroMessage(
+              "Permission to use the gyroscope was denied. " +
+              "Use the arrow keys to steer instead."
+            );
+
+
+            return;
+          }
+        }
+
+
+        window.addEventListener(
+          "deviceorientation",
+          handleOrientation
+        );
+
+
+        gyroButton.textContent =
+          "Waiting For Gyro...";
+
+        gyroButton.disabled =
+          true;
+
+
+        setTimeout(
+          checkForGyroReadings,
+          GYRO_WAIT
+        );
+      }
+
+      catch (error) {
+
+        console.error(error);
+
+
+        gyroButton.textContent =
+          "Gyro Error";
+
+
+        showGyroMessage(
+          "The gyroscope could not be started. " +
+          "Use the arrow keys to steer instead."
+        );
+      }
+    }
+
+
+
+    gyroButton.addEventListener(
+      "click",
+      enableGyro
+    );
+
+
+
+    // ============================================================
+    // BASIC GYRO CHECKS
+    // ============================================================
+
+    // Phones require a secure page for
+    // device orientation readings.
+    if (!window.isSecureContext) {
+
+      gyroButton.textContent =
+        "Needs HTTPS";
+
+      gyroButton.disabled =
+        true;
+
+
+      showGyroMessage(
+        "This page is not being served over https, so phones will " +
+        "not report any gyroscope readings. Follow the setup " +
+        "instructions to open it over https. The arrow keys still work."
+      );
+    }
+
+    else if (
+      typeof DeviceOrientationEvent ===
+      "undefined"
+    ) {
+
+      gyroButton.textContent =
+        "Gyro Unavailable";
+
+      gyroButton.disabled =
+        true;
+
+
+      showGyroMessage(
+        "This browser does not support the gyroscope. " +
+        "Use the arrow keys to steer instead."
+      );
+    }
+
+
+
+    // ============================================================
+    // SMALL BROWSER-SPECIFIC HELPERS
+    // ============================================================
+
+    function resizeCanvas() {
+
+      const bounds =
+        canvas.getBoundingClientRect();
+
+
+      const pixelRatio =
+        window.devicePixelRatio ||
+        1;
+
+
+      canvas.width =
+        Math.round(
+          bounds.width *
+          pixelRatio
+        );
+
+
+      canvas.height =
+        Math.round(
+          bounds.height *
+          pixelRatio
+        );
+    }
+
+
+
+    resizeCanvas();
+
+
+    window.addEventListener(
+      "resize",
+      resizeCanvas
+    );
+
+
+
+    function prepareContext() {
+
+      context.setTransform(
+        1,
+        0,
+        0,
+        1,
+        0,
+        0
+      );
+
+
+      context.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+
+
+      context.setTransform(
+        canvas.width / WIDTH,
+        0,
+        0,
+        canvas.height / HEIGHT,
+        0,
+        0
+      );
+    }
+
+
+
+    // ============================================================
+    // APPLICATION LOOP
+    // ============================================================
+
+    let previousTime;
+
+
+
+    function frame(currentTime) {
+
+      if (
+        previousTime ===
+        undefined
+      ) {
+
+        previousTime =
+          currentTime;
+      }
+
+
+      const dt =
+        Math.min(
+          (
+            currentTime -
+            previousTime
+          ) / 1000,
+
+          0.05
+        );
+
+
+      previousTime =
+        currentTime;
+
+
+      if (!model.paused) {
+
+        update(dt);
+      }
+
+
+      prepareContext();
+
+      render(context);
+
+
+      requestAnimationFrame(
+        frame
+      );
+    }
+
+
+
+    requestAnimationFrame(
+      frame
+    );
+
+  </script>
+
+</body>
+
+</html>
